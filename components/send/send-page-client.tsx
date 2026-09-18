@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { LiveBadge } from '@/components/shared/live-badge';
 import { SecretFlameWidget } from '@/components/send/secret-flame-widget';
 import { VoiceTeaRecorder } from '@/components/send/voice-tea-recorder';
+import { CheckoutModal } from '@/components/shared/checkout-modal';
 import type { Profile } from '@/types/database';
 import { MAX_MESSAGE_LENGTH } from '@/lib/constants';
 
@@ -22,6 +23,7 @@ export function SendPageClient({ profile }: SendPageClientProps) {
   const [success, setSuccess] = useState(false);
   const [voiceData, setVoiceData] = useState<string | null>(null);
   const [voiceDuration, setVoiceDuration] = useState(0);
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!content.trim()) {
@@ -35,6 +37,7 @@ export function SendPageClient({ profile }: SendPageClientProps) {
 
     setLoading(true);
     try {
+      // Send the message first (without priority — Express Tea is paid after send)
       const res = await fetch('/api/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -42,7 +45,7 @@ export function SendPageClient({ profile }: SendPageClientProps) {
           recipientUsername: profile.username,
           content,
           igFirstLetter: igFirstLetter || undefined,
-          isPriority,
+          isPriority: false,
           voiceData: voiceData || undefined,
           voiceDuration: voiceDuration || undefined,
         }),
@@ -55,12 +58,24 @@ export function SendPageClient({ profile }: SendPageClientProps) {
         return;
       }
 
+      // If Express Tea was selected, open checkout to pin the message
+      if (isPriority && data.messageId) {
+        setPendingMessageId(data.messageId);
+        setLoading(false);
+        return;
+      }
+
       setSuccess(true);
     } catch {
       toast.error('Network error. Try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExpressSuccess = () => {
+    setPendingMessageId(null);
+    setSuccess(true);
   };
 
   if (success) {
@@ -194,7 +209,7 @@ export function SendPageClient({ profile }: SendPageClientProps) {
             ) : (
               <>
                 <Sparkles className="w-5 h-5" />
-                Spill the Tea
+                {isPriority ? 'Send & Pay ₹9' : 'Spill the Tea'}
               </>
             )}
           </motion.button>
@@ -204,6 +219,19 @@ export function SendPageClient({ profile }: SendPageClientProps) {
           Your message is 100% anonymous. No logs. No tracking. Just tea.
         </p>
       </motion.div>
+
+      {/* Express Tea Checkout Modal */}
+      {pendingMessageId && (
+        <CheckoutModal
+          tier="express"
+          messageId={pendingMessageId}
+          onClose={() => {
+            setPendingMessageId(null);
+            setSuccess(true);
+          }}
+          onSuccess={handleExpressSuccess}
+        />
+      )}
     </main>
   );
 }

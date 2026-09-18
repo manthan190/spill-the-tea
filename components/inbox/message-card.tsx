@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import type { MessageWithHints, VoiceNote } from '@/types/database';
+import type { MessageWithHints, VoiceNote, PaywallTier } from '@/types/database';
+import { CheckoutModal } from '@/components/shared/checkout-modal';
 
 type MessageCardProps = {
   message: MessageWithHints;
@@ -25,6 +26,7 @@ export function MessageCard({ message, onDelete }: MessageCardProps) {
   const [voiceUnlocked, setVoiceUnlocked] = useState(false);
   const [voicePlaying, setVoicePlaying] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [checkoutTier, setCheckoutTier] = useState<PaywallTier | null>(null);
 
   const hints = message.message_hints;
   const voiceNote = message.voice_notes?.[0] || null;
@@ -37,13 +39,26 @@ export function MessageCard({ message, onDelete }: MessageCardProps) {
     return mildWords.some((w) => lower.includes(w));
   }
 
-  const handleUnlock = async (tier: 'device' | 'location' | 'bundle' | 'voice') => {
-    if (tier === 'voice') {
-      toast.info('Payment integration coming soon! This is a demo unlock.');
+  const handleUnlock = (tier: PaywallTier) => {
+    setCheckoutTier(tier);
+  };
+
+  const handleCheckoutSuccess = () => {
+    setCheckoutTier(null);
+    if (checkoutTier === 'voice') {
       setVoiceUnlocked(true);
-      return;
+    } else if (checkoutTier === 'device') {
+      // Optimistic update — webhook will confirm
+      if (hints) hints.is_device_unlocked = true;
+    } else if (checkoutTier === 'location') {
+      if (hints) hints.is_location_unlocked = true;
+    } else if (checkoutTier === 'bundle') {
+      if (hints) {
+        hints.is_device_unlocked = true;
+        hints.is_location_unlocked = true;
+        hints.is_full_bundle_unlocked = true;
+      }
     }
-    toast.info('Payment integration coming soon! This is a demo unlock.');
   };
 
   const generateComebacks = async () => {
@@ -385,6 +400,16 @@ export function MessageCard({ message, onDelete }: MessageCardProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Checkout Modal */}
+      {checkoutTier && (
+        <CheckoutModal
+          tier={checkoutTier}
+          messageId={message.id}
+          onClose={() => setCheckoutTier(null)}
+          onSuccess={handleCheckoutSuccess}
+        />
+      )}
     </motion.div>
   );
 }

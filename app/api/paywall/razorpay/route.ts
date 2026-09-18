@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/server';
 import { PAYWALL_TIERS } from '@/types/database';
+import Razorpay from 'razorpay';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,9 +19,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
     }
 
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
     const supabase = getSupabaseServiceClient();
 
-    // Create a payment record
+    // Create a payment record (amount stored in paise)
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .insert({
@@ -39,32 +43,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // In production, this would create a Razorpay order:
-    //
-    // const razorpay = new Razorpay({
-    //   key_id: process.env.RAZORPAY_KEY_ID,
-    //   key_secret: process.env.RAZORPAY_KEY_SECRET,
-    // });
-    // const order = await razorpay.orders.create({
-    //   amount: tierConfig.amount,
-    //   currency: 'INR',
-    //   receipt: payment.id,
-    //   notes: { tier, message_id: messageId },
-    // });
-    //
-    // await supabase.from('payments').update({
-    //   razorpay_order_id: order.id,
-    //   status: 'order_created',
-    // }).eq('id', payment.id);
+    // If Razorpay keys are not configured, return the payment record in demo mode
+    if (!keyId || !keySecret) {
+      return NextResponse.json({
+        paymentId: payment.id,
+        tier,
+        amount: tierConfig.amount,
+        label: tierConfig.label,
+        demoMode: true,
+        message: 'Razorpay not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable live payments.',
+      });
+    }
+
+    // Create a Razorpay order
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+
+    const order = await razorpay.orders.create({
+      amount: tierConfig.amount, // already in paise (₹9 = 900)
+      currency: 'INR',
+      receipt: payment.id,
+      notes: {
+        tier,
+        message_id: messageId,
+        payment_id: payment.id,
+      },
+    });
+
+    // Store the order ID on the payment record
+    const { error: updateError } = await supabase
+      .from('payments')
+      .update({
+        razorpay_order_id: order.id,
+        status: 'order_created',
+      })
+      .eq('id', payment.id);
+
+    if (updateError) {
+      console.error('Failed to update payment with order ID:', updateError.message);
+    }
 
     return NextResponse.json({
       paymentId: payment.id,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
       tier,
-      amount: tierConfig.amount,
       label: tierConfig.label,
-      message: 'Razorpay not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable payments.',
+      keyId, // exposed publicly — this is the test/public key, safe for client
+      demoMode: false,
     });
-  } catch {
+  } catch (err) {
+    console.error('Paywall error:', err);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
