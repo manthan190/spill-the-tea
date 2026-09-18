@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Sparkles, Loader2, ArrowRight, Check } from 'lucide-react';
@@ -9,10 +9,25 @@ import { toast } from 'sonner';
 export function OnboardingForm() {
   const [handle, setHandle] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const router = useRouter();
 
   const sanitize = (val: string) =>
     val.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+
+  // Check for an existing session in localStorage before showing the form.
+  // Returning users skip straight to their inbox.
+  useEffect(() => {
+    const savedUserId = localStorage.getItem('stt_user_id');
+    const savedUsername = localStorage.getItem('stt_username');
+
+    if (savedUserId && savedUsername) {
+      router.replace('/inbox');
+      return;
+    }
+
+    setCheckingSession(false);
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,13 +56,21 @@ export function OnboardingForm() {
       localStorage.setItem('stt_username', cleanHandle);
 
       toast.success('Your link is ready!');
-      router.push(`/inbox`);
+      router.push('/inbox');
     } catch {
       toast.error('Something went wrong. Try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  if (checkingSession) {
+    return (
+      <div className="w-full max-w-md flex items-center justify-center py-8">
+        <Loader2 className="w-5 h-5 animate-spin text-pink-500" />
+      </div>
+    );
+  }
 
   return (
     <motion.div

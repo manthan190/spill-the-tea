@@ -15,62 +15,100 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabaseServiceClient();
+    const fakeEmail = `${cleanUsername}@spillthetea.app`;
 
-    // Check if username is already taken
-    const { data: existing } = await supabase
+    // Step 1: Check if a profile already exists for this username
+    const { data: existingProfile } = await supabase
       .from('profiles')
       .select('id, username')
       .eq('username', cleanUsername)
       .maybeSingle();
 
-    if (existing) {
-      // Return existing profile — let user reuse it
+    if (existingProfile) {
       return NextResponse.json({
-        userId: existing.id,
-        username: existing.username,
+        userId: existingProfile.id,
+        username: existingProfile.username,
         existing: true,
       });
     }
 
-    // Create a new auth user with a random email (anonymous account)
-    const fakeEmail = `${cleanUsername}@spillthetea.app`;
+    // Step 2: No profile row. Try to create an auth user.
+    let authUserId: string | null = null;
+
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: fakeEmail,
       email_confirm: true,
       user_metadata: { username: cleanUsername },
     });
 
-    if (authError || !authData.user) {
-      // If user already exists in auth, try to find their profile
-      if (authError?.message?.includes('already been registered')) {
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('id, username')
-          .eq('username', cleanUsername)
-          .maybeSingle();
+    if (authError) {
+      // The auth user already exists (profile row was never created or was deleted).
+      // Look up the existing auth user by email so we can create the missing profile.
+      if (authError.message?.includes('already been registered')) {
+        const { data: usersList, error: listError } = await supabase.auth.admin.listUsers();
 
-        if (existingProfile) {
-          return NextResponse.json({
-            userId: existingProfile.id,
-            username: existingProfile.username,
-            existing: true,
-          });
+        if (listError || !usersList?.users) {
+          return NextResponse.json(
+            { error: 'Account exists but could not be resolved. Please try again.' },
+            { status: 500 }
+          );
         }
+
+        const existingUser = usersList.users.find(
+          (u) => u.email === fakeEmail
+        );
+
+        if (existingUser) {
+          authUserId = existingUser.id;
+        } else {
+          // Edge case: email registered but not returned by listUsers (pagination).
+          // Fall through to error.
+          return NextResponse.json(
+            { error: 'This handle is already taken. Try a different one.' },
+            { status: 409 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { error: authError.message || 'Failed to create account' },
+          { status: 500 }
+        );
       }
+    } else {
+      authUserId = authData.user!.id;
+    }
+
+    if (!authUserId) {
       return NextResponse.json(
-        { error: authError?.message || 'Failed to create account' },
+        { error: 'Failed to create account' },
         { status: 500 }
       );
     }
 
-    // Create profile
+    // Step 3: Create the profile row (either brand new, or the missing one for an existing auth user)
     const { error: profileError } = await supabase.from('profiles').insert({
-      id: authData.user.id,
+      id: authUserId,
       username: cleanUsername,
       display_name: cleanUsername,
     });
 
     if (profileError) {
+      // If the profile was created by a concurrent request, treat as success
+      if (profileError.code === '23505') {
+        const { data: raceProfile } = await supabase
+          .from('profiles')
+          .select('id, username')
+          .eq('username', cleanUsername)
+          .maybeSingle();
+
+        if (raceProfile) {
+          return NextResponse.json({
+            userId: raceProfile.id,
+            username: raceProfile.username,
+            existing: true,
+          });
+        }
+      }
       return NextResponse.json(
         { error: 'Failed to create profile' },
         { status: 500 }
@@ -78,11 +116,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      userId: authData.user.id,
+      userId: authUserId,
       username: cleanUsername,
       existing: false,
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
