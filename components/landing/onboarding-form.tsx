@@ -47,15 +47,22 @@ export function OnboardingForm() {
 
       const data = await res.json();
 
-      if (!res.ok) {
-        toast.error(data.error || 'Could not create your link');
+      if (!res.ok || !data.success) {
+        const errorMsg = data?.error || data?.details?.message || 'Could not create your link';
+        toast.error(errorMsg);
         return;
       }
 
-      localStorage.setItem('stt_user_id', data.userId);
-      localStorage.setItem('stt_username', cleanHandle);
+      const profile = data.profile;
+      if (!profile?.id || !profile?.username) {
+        toast.error('Received an invalid response from the server');
+        return;
+      }
 
-      toast.success('Your link is ready!');
+      localStorage.setItem('stt_user_id', profile.id);
+      localStorage.setItem('stt_username', profile.username);
+
+      toast.success(data.existing ? 'Welcome back!' : 'Your link is ready!');
       router.push('/inbox');
     } catch {
       toast.error('Something went wrong. Try again.');
