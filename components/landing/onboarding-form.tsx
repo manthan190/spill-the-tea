@@ -49,8 +49,9 @@ export function OnboardingForm() {
         const res = await fetch(`/api/profile/check?username=${encodeURIComponent(username)}`);
         const data = await res.json();
 
-        if (!res.ok) {
-          console.error('Availability check error:', data.error);
+        if (!res.ok || !data.success) {
+          const errorMsg = data?.error || 'Availability check failed';
+          console.error('Availability check error:', errorMsg);
           setAvailability('error');
           return;
         }
@@ -117,8 +118,10 @@ export function OnboardingForm() {
 
       toast.success(data.existing ? 'Welcome back!' : 'Your link is ready!');
       router.push('/inbox');
-    } catch {
-      toast.error('Something went wrong. Try again.');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Network error. Try again.';
+      console.error('Profile creation error:', errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

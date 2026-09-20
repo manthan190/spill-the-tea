@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (exactError) {
-      console.error('Profile lookup error (exact):', JSON.stringify(exactError, null, 2));
+      console.error('Supabase Execution Error:', JSON.stringify(exactError, null, 2));
       // Fallback to case-insensitive query
       const { data: ilikeProfile, error: ilikeError } = await supabase
         .from('profiles')
@@ -44,12 +44,11 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (ilikeError) {
-        console.error('Profile lookup error (ilike):', JSON.stringify(ilikeError, null, 2));
+        console.error('Supabase Execution Error:', JSON.stringify(ilikeError, null, 2));
         return NextResponse.json(
           {
             success: false,
-            error: 'Could not check username availability. Please try again.',
-            details: ilikeError,
+            error: ilikeError.message || 'Database connection failed',
           },
           { status: 500 }
         );
@@ -72,8 +71,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 2: Insert a new profile with an explicitly generated UUID.
-    // The id column is uuid NOT NULL with a default of gen_random_uuid(),
-    // but we provide one explicitly to avoid any client-side omission issues.
     const profileId = randomUUID();
 
     const { data: newProfile, error: profileError } = await supabase
@@ -87,7 +84,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (profileError) {
-      console.error('Profile Creation Postgres Error:', JSON.stringify(profileError, null, 2));
+      console.error('Supabase Execution Error:', JSON.stringify(profileError, null, 2));
 
       // Unique violation — concurrent request created the profile
       if (profileError.code === '23505') {
@@ -109,16 +106,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Return the exact Postgres error so the client can display it
       return NextResponse.json(
         {
           success: false,
           error: profileError.message || 'Database insert failed',
-          details: {
-            code: profileError.code,
-            hint: profileError.hint,
-            details: profileError.details,
-          },
         },
         { status: 500 }
       );
@@ -133,13 +124,10 @@ export async function POST(req: NextRequest) {
       existing: false,
     });
   } catch (err) {
-    console.error('Profile creation unexpected error:', err);
+    console.error('Supabase Execution Error:', JSON.stringify(err, null, 2));
+    const message = err instanceof Error ? err.message : 'Internal server error';
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-        details: err instanceof Error ? err.message : String(err),
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }
