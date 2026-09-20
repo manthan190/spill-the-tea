@@ -1,15 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, ArrowRight, Check } from 'lucide-react';
+import { Sparkles, Loader2, ArrowRight, Check, X } from 'lucide-react';
 import { toast } from 'sonner';
+
+type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
 
 export function OnboardingForm() {
   const [handle, setHandle] = useState('');
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [availability, setAvailability] = useState<AvailabilityState>('idle');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
 
   const sanitize = (val: string) =>
@@ -29,11 +33,60 @@ export function OnboardingForm() {
     setCheckingSession(false);
   }, [router]);
 
+  // Debounced availability check
+  const checkAvailability = useCallback((username: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (username.length < 2) {
+      setAvailability('idle');
+      return;
+    }
+
+    setAvailability('checking');
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/profile/check?username=${encodeURIComponent(username)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          console.error('Availability check error:', data.error);
+          setAvailability('error');
+          return;
+        }
+
+        setAvailability(data.available ? 'available' : 'taken');
+      } catch (err) {
+        console.error('Availability check network error:', err);
+        // Don't block the user on transient network failures
+        setAvailability('error');
+      }
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = sanitize(e.target.value);
+    setHandle(val);
+    checkAvailability(val);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanHandle = sanitize(handle);
     if (!cleanHandle || cleanHandle.length < 2) {
       toast.error('Handle needs at least 2 characters');
+      return;
+    }
+
+    // If we already know it's taken, block early
+    if (availability === 'taken') {
+      toast.error('That handle is already taken. Try another one.');
       return;
     }
 
@@ -94,16 +147,28 @@ export function OnboardingForm() {
           <input
             type="text"
             value={handle}
-            onChange={(e) => setHandle(sanitize(e.target.value))}
+            onChange={handleInputChange}
             placeholder="yourname"
             maxLength={20}
             className="flex-1 bg-transparent text-white placeholder-zinc-600 outline-none py-3 text-lg font-medium"
             autoComplete="off"
             spellCheck={false}
           />
+          {/* Availability indicator */}
+          <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
+            {availability === 'checking' && (
+              <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+            )}
+            {availability === 'available' && (
+              <Check className="w-4 h-4 text-green-400" />
+            )}
+            {availability === 'taken' && (
+              <X className="w-4 h-4 text-red-400" />
+            )}
+          </div>
           <motion.button
             type="submit"
-            disabled={loading || handle.length < 2}
+            disabled={loading || handle.length < 2 || availability === 'taken'}
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 px-5 py-3 font-semibold text-white glow-pink disabled:opacity-50 disabled:cursor-not-allowed"
@@ -118,6 +183,20 @@ export function OnboardingForm() {
             )}
           </motion.button>
         </div>
+        {/* Availability message */}
+        {handle.length >= 2 && (
+          <div className="text-xs text-center min-h-[16px]">
+            {availability === 'available' && (
+              <span className="text-green-400">Good news — this handle is available!</span>
+            )}
+            {availability === 'taken' && (
+              <span className="text-red-400">Sorry, this handle is already taken.</span>
+            )}
+            {availability === 'error' && (
+              <span className="text-zinc-500">Couldn't check availability — you can still try claiming.</span>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <span className="flex items-center gap-1">
             <Check className="w-3 h-3 text-cyan-400" /> Free forever

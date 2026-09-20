@@ -24,23 +24,40 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // Step 1: Check if a profile already exists for this username
-    const { data: existingProfile, error: lookupError } = await supabase
+    // Step 1: Check if a profile already exists for this username.
+    // Try exact match first, then fall back to case-insensitive (ilike).
+    let existingProfile: { id: string; username: string } | null = null;
+
+    const { data: exactProfile, error: exactError } = await supabase
       .from('profiles')
       .select('id, username')
       .eq('username', cleanUsername)
       .maybeSingle();
 
-    if (lookupError) {
-      console.error('Profile lookup error:', JSON.stringify(lookupError, null, 2));
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Could not check username availability. Please try again.',
-          details: lookupError,
-        },
-        { status: 500 }
-      );
+    if (exactError) {
+      console.error('Profile lookup error (exact):', JSON.stringify(exactError, null, 2));
+      // Fallback to case-insensitive query
+      const { data: ilikeProfile, error: ilikeError } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .ilike('username', cleanUsername)
+        .maybeSingle();
+
+      if (ilikeError) {
+        console.error('Profile lookup error (ilike):', JSON.stringify(ilikeError, null, 2));
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Could not check username availability. Please try again.',
+            details: ilikeError,
+          },
+          { status: 500 }
+        );
+      }
+
+      existingProfile = ilikeProfile;
+    } else {
+      existingProfile = exactProfile;
     }
 
     if (existingProfile) {
