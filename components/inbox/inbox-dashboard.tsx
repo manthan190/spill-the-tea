@@ -145,14 +145,14 @@ export function InboxDashboard() {
       {/* Header */}
       <nav className="sticky top-0 z-40 backdrop-blur-2xl bg-zinc-950/60 border-b border-zinc-900">
         <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <a href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
               <Coffee className="w-4 h-4 text-white" />
             </div>
             <span className="font-bold font-display text-white">
               Spill<span className="text-gradient">TheTea</span>
             </span>
-          </div>
+          </a>
           <a href="/" className="text-sm text-zinc-400 hover:text-white transition-colors">
             Home
           </a>

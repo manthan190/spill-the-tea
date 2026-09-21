@@ -12,7 +12,8 @@ export default function LandingPage() {
     <main className="relative min-h-screen">
       {/* Nav */}
       <nav className="flex items-center justify-between px-5 sm:px-8 py-5 max-w-7xl mx-auto">
-        <motion.div
+        <motion.a
+          href="/"
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-2"
@@ -23,7 +24,7 @@ export default function LandingPage() {
           <span className="text-xl font-bold font-display text-white">
             Spill<span className="text-gradient">TheTea</span>
           </span>
-        </motion.div>
+        </motion.a>
         <motion.a
           href="/inbox"
           initial={{ opacity: 0, x: 20 }}
